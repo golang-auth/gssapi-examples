@@ -4,6 +4,8 @@ github.com/golang-auth/go-gssapi-c v0.0.0-20240827133603-e7af9f04586a h1:qdMspd9
 github.com/golang-auth/go-gssapi-c v0.0.0-20240827133603-e7af9f04586a/go.mod h1:7+YbBfLmM3gMF6DoCfjZFQBx1SXj1Uru6Y2tl77nhJ8=
 github.com/golang-auth/go-gssapi-c v0.0.0-20240828194135-955ba90d4511 h1:k9cgAxS+AYKwAN7/moi03LK3EjTFUKeMRh9Cu2j4/D0=
 github.com/golang-auth/go-gssapi-c v0.0.0-20240828194135-955ba90d4511/go.mod h1:rb9NLAgRMfr732Kvm1mOH5J6eIx/WULl8rAFNXSzGqY=
+github.com/golang-auth/go-gssapi-c v0.0.0-20241219115737-a8749979d224 h1:CG3XBjiYzNV3KinTxZj5lvOpDHelxIoZsYo46KcUchE=
+github.com/golang-auth/go-gssapi-c v0.0.0-20241219115737-a8749979d224/go.mod h1:CEfoM233v3NuIUfUjpqkxj+JxFLJ80Rr39Sji2LNYUg=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/stretchr/testify v1.9.0 h1:HtqpIVDClZ4nwg75+f6Lvsy/wHu+3BoSGCbBAcpTsTg=

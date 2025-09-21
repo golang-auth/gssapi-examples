@@ -71,7 +71,7 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
-		opts = append(opts, gssapi.WithInitatorMech(gssMech))
+		opts = append(opts, gssapi.WithInitiatorMech(gssMech))
 	}
 
 	serviceName, err := gss.ImportName(service, gssapi.GSS_NT_HOSTBASED_SERVICE)
@@ -82,20 +82,27 @@ func main() {
 
 	debug("Requested flags: %s", flags)
 
-	secctx, outToken, err := gss.InitSecContext(serviceName, opts...)
+	secctx, err := gss.InitSecContext(serviceName, opts...)
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	defer secctx.Delete()
 
-	if sendErr := sendToken(conn, outToken); sendErr != nil {
-		log.Fatal(err)
-	}
-	debug("Sent context token (%d bytes):", len(outToken))
-	debug("%s", formatToken(outToken))
+	var inToken, outToken []byte
 
 	for secctx.ContinueNeeded() {
+		outToken, err = secctx.Continue(inToken)
+		if err != nil {
+			log.Fatal(err)
+		}
+		if len(outToken) > 0 {
+			if err := sendToken(conn, outToken); err != nil {
+				log.Fatal(err)
+			}
+			debug("Sent context token (%d bytes):", len(outToken))
+			debug("%s", formatToken(outToken))
+		}
 
 		inToken, err := recvToken(conn)
 		if err != nil {
@@ -103,21 +110,6 @@ func main() {
 		}
 		debug("Read context token (%d bytes:", len(inToken))
 		debug("%s", formatToken(inToken))
-
-		outToken, err = secctx.Continue(inToken)
-
-		if len(outToken) > 0 {
-			if err := sendToken(conn, outToken); err != nil {
-				log.Fatal(err)
-			}
-			debug("Sent context token (%d bytes):", len(outToken))
-			debug("%s", formatToken(outToken))
-
-		}
-
-		if err != nil {
-			log.Fatal(err)
-		}
 	}
 
 	info, err := secctx.Inquire()
@@ -187,15 +179,36 @@ func printContextInfo(info *gssapi.SecContextInfo) {
 		open = "open"
 	}
 
+	var expiresAt string
+	switch {
+	default:
+		expiresAt = info.ExpiresAt.ExpiresAt.Format(time.RFC3339)
+	case info.ExpiresAt.Status == gssapi.GssLifetimeIndefinite:
+		expiresAt = "indefinite"
+	case info.ExpiresAt.Status == gssapi.GssLifetimeExpired:
+		expiresAt = "expired"
+	}
+
+	initName, initNameType, err := info.InitiatorName.Display()
+	if err != nil {
+		log.Fatal(err)
+	}
+	acceptName, acceptNameType, err := info.AcceptorName.Display()
+	if err != nil {
+		log.Fatal(err)
+	}
+	_ = initName
+	_ = acceptName
+
 	debug("Context flags: %s", info.Flags)
 	debug("\"%s\" to \"%s\", expires: %s, %s, %s",
 		info.InitiatorName, info.AcceptorName,
-		info.ExpiresAt.Round(time.Second),
+		expiresAt,
 		local,
 		open)
 
-	debug("Name type of source is %s (%s)", info.AcceptorNameType, info.AcceptorNameType.OidString())
-	debug("Name type of destination is %s (%s)", info.InitiatorNameType, info.InitiatorNameType.OidString())
+	debug("Name type of source is %s (%s)", initNameType, initNameType.OidString())
+	debug("Name type of destination is %s (%s)", acceptNameType, acceptNameType.OidString())
 	debug("Mechanism: %s (%s)", info.Mech, info.Mech.OidString())
 }
 

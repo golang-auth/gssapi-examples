@@ -7,10 +7,10 @@
 *.o
 *.class
 
-examples/c/gss-client-c
-examples/c/gss-server-c
-examples/go/gss-client-go
-examples/go/gss-server-go
+c/gss-client-c
+c/gss-server-c
+go/gss-client-go
+go/gss-server-go
 
 # Test binary, built with `go test -c`
 *.test
