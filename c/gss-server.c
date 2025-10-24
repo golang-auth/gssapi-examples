@@ -30,7 +30,11 @@
 #include <stdlib.h>
 #include <ctype.h>
 
+#ifdef Darwin
+#include <GSS/gssapi.h>
+#else
 #include <gssapi/gssapi.h>
+#endif
 #include "gss-misc.h"
 
 #include <string.h>
@@ -65,9 +69,7 @@ int verbose = 0;
  * fails, an error message is displayed and -1 is returned; otherwise,
  * 0 is returned.
  */
-int server_acquire_creds(service_name, server_creds)
-     char *service_name;
-     gss_cred_id_t *server_creds;
+int server_acquire_creds(char *service_name, gss_cred_id_t *server_creds)
 {
      gss_buffer_desc name_buf;
      gss_name_t server_name;
@@ -118,14 +120,7 @@ int server_acquire_creds(service_name, server_creds)
  * in client_name and 0 is returned.  If unsuccessful, an error
  * message is displayed and -1 is returned.
  */
-int server_establish_context(s, server_creds, context, client_name, \
-     ret_flags)
-
-     int s;
-     gss_cred_id_t server_creds;
-     gss_ctx_id_t *context;
-     gss_buffer_t client_name;
-     OM_uint32 *ret_flags;
+int server_establish_context(int s, gss_cred_id_t server_creds, gss_ctx_id_t *context, gss_buffer_t client_name, OM_uint32 *ret_flags)
 {
      gss_buffer_desc send_tok, recv_tok;
      gss_name_t client;
@@ -234,8 +229,7 @@ int server_establish_context(s, server_creds, context, client_name, \
  * A listening socket on the specified port is created and returned.
  * On error, an error message is displayed and -1 is returned.
  */
-int create_socket(port)
-     u_short port;
+int create_socket(u_short port)
 {
      struct sockaddr_in saddr;
      int s;
@@ -265,16 +259,13 @@ int create_socket(port)
      return s;
 }
 
-static float timeval_subtract(tv1, tv2)
-        struct timeval *tv1, *tv2;
+static float timeval_subtract(struct timeval *tv1, struct timeval *tv2)
 {
-        return ((tv1->tv_sec - tv2->tv_sec) +
-                ((float) (tv1->tv_usec - tv2->tv_usec)) / 1000000);
+    return ((tv1->tv_sec - tv2->tv_sec) +
+            ((float) (tv1->tv_usec - tv2->tv_usec)) / 1000000);
 }
 
-
-int export_context(context)
-        gss_ctx_id_t *context;
+int export_context(gss_ctx_id_t *context)
 {
         OM_uint32       min_stat, maj_stat;
         gss_buffer_desc context_token, copied_token;
@@ -348,15 +339,13 @@ int export_context(context)
  *
  * If any error occurs, -1 is returned.
  */
-int sign_server(s, server_creds, export_ctx)
-     int s;
-     gss_cred_id_t server_creds;
-     int export_ctx;
+int sign_server(int s, gss_cred_id_t server_creds, int export_ctx)
 {
      gss_buffer_desc client_name, xmit_buf, msg_buf;
      gss_ctx_id_t context;
      OM_uint32 maj_stat, min_stat;
-     int conf_state, ret_flags;
+     int conf_state;
+     OM_uint32  ret_flags;
      char       *cp;
      
      /* Establish a context with the client */
@@ -397,7 +386,7 @@ int sign_server(s, server_creds, export_ctx)
      cp = msg_buf.value;
      if ((isprint(cp[0]) || isspace(cp[0])) &&
          (isprint(cp[1]) || isspace(cp[1]))) {
-        fprintf(logger, "\"%.*s\"\n", msg_buf.length, msg_buf.value);
+        fprintf(logger, "\"%.*s\"\n", (int)msg_buf.length, (char *)msg_buf.value);
      } else {
         printf("\n");
         print_token(&msg_buf);
@@ -439,9 +428,7 @@ int sign_server(s, server_creds, export_ctx)
 
 
 int
-main(argc, argv)
-     int argc;
-     char **argv;
+main(int argc, char **argv)
 {
      char *service_name;
      gss_cred_id_t server_creds;
@@ -496,7 +483,7 @@ main(argc, argv)
          close(1);
          close(2);
 
-         sign_server(0, server_creds);
+         sign_server(0, server_creds, export_ctx);
          close(0);
      } else {
          int stmp;

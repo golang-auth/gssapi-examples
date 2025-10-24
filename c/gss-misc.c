@@ -29,15 +29,19 @@
 #include <unistd.h>
 #include <string.h>
 
+#ifdef Darwin
+#include <GSS/gssapi.h>
+#else
 #include <gssapi/gssapi.h>
+#endif
+
 #include "gss-misc.h"
 
 #include <stdlib.h>
 
 FILE *display_file;
 
-static void display_status_1
-        (char *m, OM_uint32 code, int type);
+static void display_status_1(char *m, OM_uint32 code, int type);
 
 static int write_all(int fildes, char *buf, unsigned int nbyte)
 {
@@ -95,9 +99,7 @@ static int read_all(int fildes, char *buf, unsigned int nbyte)
  * token data to the file descriptor s.  It returns 0 on success, and
  * -1 if an error occurs or if it could not write all the data.
  */
-int send_token(s, tok)
-     int s;
-     gss_buffer_t tok;
+int send_token(int s, gss_buffer_t tok)
 {
      int len, ret;
 
@@ -151,9 +153,7 @@ int send_token(s, tok)
  * gss_release_buffer.  It returns 0 on success, and -1 if an error
  * occurs or if it could not read all the data.
  */
-int recv_token(s, tok)
-     int s;
-     gss_buffer_t tok;
+int recv_token(int s, gss_buffer_t tok)
 {
      int ret;
 
@@ -193,10 +193,7 @@ int recv_token(s, tok)
      return 0;
 }
 
-static void display_status_1(m, code, type)
-     char *m;
-     OM_uint32 code;
-     int type;
+static void display_status_1(char *m, OM_uint32 code, int type)
 {
      OM_uint32 min_stat;
      gss_buffer_desc msg;
@@ -234,10 +231,7 @@ static void display_status_1(m, code, type)
  * displayed on stderr, each preceded by "GSS-API error <msg>: " and
  * followed by a newline.
  */
-void display_status(msg, maj_stat, min_stat)
-     char *msg;
-     OM_uint32 maj_stat;
-     OM_uint32 min_stat;
+void display_status(char *msg, OM_uint32 maj_stat, OM_uint32 min_stat)
 {
      display_status_1(msg, maj_stat, GSS_C_GSS_CODE);
      display_status_1(msg, min_stat, GSS_C_MECH_CODE);
@@ -259,8 +253,7 @@ void display_status(msg, maj_stat, min_stat)
  * stdout, preceded by "context flag: " and followed by a newline
  */
 
-void display_ctx_flags(flags)
-     OM_uint32 flags;
+void display_ctx_flags(OM_uint32 flags)
 {
      fprintf(display_file, "Context flags:\n");
      if (flags & GSS_C_DELEG_FLAG)
@@ -277,8 +270,7 @@ void display_ctx_flags(flags)
           fprintf(display_file, " GSS_C_INTEG_FLAG \n");
 }
 
-void print_token(tok)
-     gss_buffer_t tok;
+void print_token(gss_buffer_t tok)
 {
     int i;
     unsigned char *p = tok->value;
@@ -294,3 +286,121 @@ void print_token(tok)
     fprintf(display_file, "\n");
     fflush(display_file);
 }
+
+#define GSS_EMPTY_BUFFER(buf)   ((buf) == NULL ||                       \
+                                 (buf)->value == NULL || (buf)->length == 0)
+
+static int
+get_arc(const unsigned char **bufp, const unsigned char *end,
+        unsigned long *arc_out)
+{
+    const unsigned char *p = *bufp;
+    unsigned long arc = 0, newval;
+
+    if (p == end || !isdigit(*p))
+        return 0;
+    for (; p < end && isdigit(*p); p++) {
+        newval = arc * 10 + (*p - '0');
+        if (newval < arc)
+            return 0;
+        arc = newval;
+    }
+    while (p < end && (isspace(*p) || *p == '.'))
+        p++;
+    *bufp = p;
+    *arc_out = arc;
+    return 1;
+}
+
+static size_t
+arc_encoded_length(unsigned long arc)
+{
+    size_t len = 1;
+
+    for (arc >>= 7; arc; arc >>= 7)
+        len++;
+    return len;
+}
+
+static void
+arc_encode(unsigned long arc, unsigned char **bufp)
+{
+    unsigned char *p;
+
+    /* Advance to the end and encode backwards. */
+    p = *bufp = *bufp + arc_encoded_length(arc);
+    *--p = arc & 0x7f;
+    for (arc >>= 7; arc; arc >>= 7)
+        *--p = (arc & 0x7f) | 0x80;
+}
+
+OM_uint32
+_gss_str_to_oid(OM_uint32 *minor_status,
+                       gss_buffer_t oid_str,
+                       gss_OID *oid_out)
+{
+    const unsigned char *p, *end, *arc3_start;
+    unsigned char *out;
+    unsigned long arc, arc1, arc2;
+    size_t nbytes;
+    int brace = 0;
+    gss_OID oid;
+
+    *minor_status = 0;
+
+    if (oid_out != NULL)
+        *oid_out = GSS_C_NO_OID;
+
+    if (GSS_EMPTY_BUFFER(oid_str))
+        return (GSS_S_CALL_INACCESSIBLE_READ);
+
+    if (oid_out == NULL)
+        return (GSS_S_CALL_INACCESSIBLE_WRITE);
+
+    /* Skip past initial spaces and, optionally, an open brace. */
+    brace = 0;
+    p = oid_str->value;
+    end = p + oid_str->length;
+    while (p < end && isspace(*p))
+        p++;
+    if (p < end && *p == '{') {
+        brace = 1;
+        p++;
+    }
+    while (p < end && isspace(*p))
+        p++;
+
+    /* Get the first two arc values, to be encoded as one subidentifier. */
+    if (!get_arc(&p, end, &arc1) || !get_arc(&p, end, &arc2))
+        return (GSS_S_FAILURE);
+    if (arc1 > 2 || (arc1 < 2 && arc2 > 39) || arc2 > ULONG_MAX - 80)
+        return (GSS_S_FAILURE);
+        arc3_start = p;
+
+        /* Compute the total length of the encoding while checking syntax. */
+        nbytes = arc_encoded_length(arc1 * 40 + arc2);
+        while (get_arc(&p, end, &arc))
+            nbytes += arc_encoded_length(arc);
+        if (brace && (p == end || *p != '}'))
+            return (GSS_S_FAILURE);
+    
+        /* Allocate an oid structure. */
+        oid = malloc(sizeof(*oid));
+        if (oid == NULL)
+            return (GSS_S_FAILURE);
+        oid->elements = malloc(nbytes);
+        if (oid->elements == NULL) {
+            free(oid);
+            return (GSS_S_FAILURE);
+        }
+        oid->length = nbytes;
+    
+        out = oid->elements;
+        arc_encode(arc1 * 40 + arc2, &out);
+        p = arc3_start;
+        while (get_arc(&p, end, &arc))
+            arc_encode(arc, &out);
+        assert(out - nbytes == oid->elements);
+        *oid_out = oid;
+        return(GSS_S_COMPLETE);
+}     

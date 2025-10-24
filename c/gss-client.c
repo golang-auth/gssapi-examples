@@ -36,8 +36,13 @@
 #include <fcntl.h>
 #include <stdbool.h>
 
+#ifdef Darwin
+#include <GSS/gssapi.h>
+#else
 #include <gssapi/gssapi.h>
+#endif
 #include "gss-misc.h"
+
 
 void usage()
 {
@@ -64,9 +69,7 @@ msg\n");
  * opened and connected.  If an error occurs, an error message is
  * displayed and -1 is returned.
  */
-int connect_to_server(host, port)
-     char *host;
-     u_short port;
+int connect_to_server(char *host, u_short port)
 {
      struct sockaddr_in saddr;
      struct hostent *hp;
@@ -120,14 +123,8 @@ int connect_to_server(host, port)
  * unsuccessful, the GSS-API error messages are displayed on stderr
  * and -1 is returned.
  */
-int client_establish_context(s, service_name, req_flags,  oid,
-                             gss_context, ret_flags)
-     int s;
-     char *service_name;
-     gss_OID oid;
-     OM_uint32 req_flags;
-     gss_ctx_id_t *gss_context;
-     OM_uint32 *ret_flags;
+int client_establish_context(int s, char *service_name, OM_uint32 req_flags, gss_OID oid,
+                             gss_ctx_id_t *gss_context, OM_uint32 *ret_flags)
 {
      gss_buffer_desc send_tok, recv_tok, *token_ptr;
      gss_name_t target_name;
@@ -222,13 +219,11 @@ int client_establish_context(s, service_name, req_flags,  oid,
      return 0;
 }
 
-void read_file(file_name, in_buf)
-    char                *file_name;
-    gss_buffer_t        in_buf;
+void read_file(char *file_name, gss_buffer_desc *in_buf)
 {
     int fd, count;
     struct stat stat_buf;
-    
+
     if ((fd = open(file_name, O_RDONLY, 0)) < 0) {
         perror("open");
         fprintf(stderr, "Couldn't open file %s\n", file_name);
@@ -287,15 +282,7 @@ void read_file(file_name, in_buf)
  * reads back a GSS-API signature block for msg from the server, and
  * verifies it with gss_verify.  -1 is returned if any step fails,
  * otherwise 0 is returned.  */
-int call_server(host, port, oid, service_name, req_flag, msg, use_file, seal)
-     char *host;
-     u_short port;
-     gss_OID oid;
-     char *service_name;
-     OM_uint32 req_flag;
-     char *msg;
-     int use_file;
-     bool seal;
+int call_server(char *host, u_short port, gss_OID oid, char *service_name, OM_uint32 req_flag, char *msg, int use_file, bool seal)
 {
      gss_ctx_id_t context;
      gss_buffer_desc in_buf, out_buf;
@@ -475,12 +462,13 @@ int call_server(host, port, oid, service_name, req_flag, msg, use_file, seal)
      return 0;
 }
 
+
 static void parse_oid(char *mechanism, gss_OID *oid)
 {
     char        *mechstr = 0, *cp;
     gss_buffer_desc tok;
     OM_uint32 maj_stat, min_stat;
-    
+
     if (isdigit(mechanism[0])) {
         mechstr = malloc(strlen(mechanism)+5);
         if (!mechstr) {
@@ -495,18 +483,16 @@ static void parse_oid(char *mechanism, gss_OID *oid)
     } else
         tok.value = mechanism;
     tok.length = strlen(tok.value);
-    maj_stat = gss_str_to_oid(&min_stat, &tok, oid);
+    maj_stat = _gss_str_to_oid(&min_stat, &tok, oid);
     if (maj_stat != GSS_S_COMPLETE) {
-        display_status("str_to_oid", maj_stat, min_stat);
-        return;
-    }
-    if (mechstr)
-        free(mechstr);
-}
+         display_status("str_to_oid", maj_stat, min_stat);
+         return;
+     }
+     if (mechstr)
+         free(mechstr);
+ }
 
-int main(argc, argv)
-     int argc;
-     char **argv;
+int main(int argc, char **argv)
 {
      char *service_name, *server_host, *msg;
      char *mechanism = 0;
@@ -515,7 +501,6 @@ int main(argc, argv)
      bool seal = false;
      OM_uint32 req_flags = 0, min_stat;
      gss_OID oid = GSS_C_NULL_OID;
-     
      display_file = stdout;
 
      /* Parse arguments. */
@@ -556,7 +541,7 @@ int main(argc, argv)
           exit(1);
 
      if (oid != GSS_C_NULL_OID)
-         (void) gss_release_oid(&min_stat, &oid);
+          free(oid);
          
      return 0;
 }

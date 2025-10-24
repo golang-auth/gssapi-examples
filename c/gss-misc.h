@@ -9,6 +9,10 @@ void display_status(char *msg, OM_uint32 maj_stat, OM_uint32 min_stat);
 void display_ctx_flags(OM_uint32 flags);
 void print_token(gss_buffer_t tok);
 
+OM_uint32 _gss_str_to_oid(OM_uint32 *minor_status,
+                       gss_buffer_t oid_str,
+                       gss_OID *oid_out);
+
 
 
 

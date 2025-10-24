@@ -20,8 +20,8 @@ import (
 
 var _debug bool
 
-var provider string = "GSSAPI-C"
-var gss = gssapi.NewProvider(provider)
+var provider string = "github.com/golang-auth/go-gssapi-c"
+var gss = gssapi.MustNewProvider(provider)
 
 func main() {
 	port := flag.Int("port", 1234, "local port to listen on")
@@ -106,37 +106,22 @@ func handleConn(conn net.Conn) error {
 
 	debug("Accepted connection from %s", conn.RemoteAddr())
 
-	inToken, err := recvToken(conn)
-	if err != nil {
-		return showErr(err)
-	}
-	debug("Read context token (%d bytes:", len(inToken))
-	debug("%s", formatToken(inToken))
-
-	secctx, outToken, err := gss.AcceptSecContext(nil, inToken)
+	secctx, err := gss.AcceptSecContext()
 	if err != nil {
 		return showErr(err)
 	}
 
 	defer secctx.Delete()
 
-	if len(outToken) > 0 {
-		if err := sendToken(conn, outToken); err != nil {
-			return showErr(err)
-		}
-		debug("Sent context token (%d bytes):", len(outToken))
-		debug("%s", formatToken(outToken))
-	}
-
 	for secctx.ContinueNeeded() {
-		if inToken, err = recvToken(conn); err != nil {
+		inToken, err := recvToken(conn)
+		if err != nil {
 			return showErr(err)
 		}
 		debug("Read context token (%d bytes:", len(inToken))
 		debug("%s", formatToken(inToken))
 
-		outToken, err = secctx.Continue(inToken)
-
+		outToken, info, err := secctx.Continue(inToken)
 		if len(outToken) > 0 {
 			if err := sendToken(conn, outToken); err != nil {
 				return showErr(err)
@@ -144,10 +129,11 @@ func handleConn(conn net.Conn) error {
 			debug("Sent context token (%d bytes):", len(outToken))
 			debug("%s", formatToken(outToken))
 		}
-
 		if err != nil {
 			log.Fatal(err)
 		}
+
+		debug("Context information: %+v", info)
 	}
 
 	info, err := secctx.Inquire()
@@ -174,7 +160,8 @@ func handleConn(conn net.Conn) error {
 	fmt.Printf(`Received %s message: "%s"`+"\n", protStr, origMsg)
 
 	// generate a MIC token to send back
-	if outToken, err = secctx.GetMIC(origMsg, 0); err != nil {
+	outToken, err := secctx.GetMIC(origMsg, 0)
+	if err != nil {
 		return showErr(err)
 	}
 
@@ -202,14 +189,33 @@ func printContextInfo(info *gssapi.SecContextInfo) {
 		open = "open"
 	}
 
+	var expiresAt string
+	switch {
+	default:
+		expiresAt = info.ExpiresAt.ExpiresAt.Format(time.RFC3339)
+	case info.ExpiresAt.Status == gssapi.GssLifetimeIndefinite:
+		expiresAt = "indefinite"
+	case info.ExpiresAt.Status == gssapi.GssLifetimeExpired:
+		expiresAt = "expired"
+	}
+
+	initName, initNameType, err := info.InitiatorName.Display()
+	if err != nil {
+		log.Fatal(err)
+	}
+	acceptName, acceptNameType, err := info.AcceptorName.Display()
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	debug("Context flags: %s", info.Flags)
 	debug("\"%s\" to \"%s\", expires: %s, %s, %s",
-		info.InitiatorName, info.AcceptorName,
-		info.ExpiresAt.Round(time.Second),
+		initName, acceptName,
+		expiresAt,
 		local,
 		open)
 
-	debug("Name type of source is %s (%s)", info.AcceptorNameType, info.AcceptorNameType.OidString())
-	debug("Name type of destination is %s (%s)", info.InitiatorNameType, info.InitiatorNameType.OidString())
+	debug("Name type of source is %s (%s)", initNameType, initNameType.OidString())
+	debug("Name type of destination is %s (%s)", acceptNameType, acceptNameType.OidString())
 	debug("Mechanism: %s (%s)", info.Mech, info.Mech.OidString())
 }

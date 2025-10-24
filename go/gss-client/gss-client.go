@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+
 package main
 
 import (
@@ -21,8 +22,8 @@ import (
 
 var _debug bool
 
-var provider string = "GSSAPI-C"
-var gss = gssapi.NewProvider(provider)
+var provider string = "github.com/golang-auth/go-gssapi-c"
+var gss = gssapi.MustNewProvider(provider)
 
 func main() {
 	port := flag.Int("port", 1234, "remote port to connect to")
@@ -89,13 +90,10 @@ func main() {
 
 	defer secctx.Delete()
 
-	var inToken, outToken []byte
+	var inToken []byte
 
 	for secctx.ContinueNeeded() {
-		outToken, err = secctx.Continue(inToken)
-		if err != nil {
-			log.Fatal(err)
-		}
+		outToken, info, err := secctx.Continue(inToken)
 		if len(outToken) > 0 {
 			if err := sendToken(conn, outToken); err != nil {
 				log.Fatal(err)
@@ -103,13 +101,20 @@ func main() {
 			debug("Sent context token (%d bytes):", len(outToken))
 			debug("%s", formatToken(outToken))
 		}
-
-		inToken, err := recvToken(conn)
 		if err != nil {
 			log.Fatal(err)
 		}
-		debug("Read context token (%d bytes:", len(inToken))
-		debug("%s", formatToken(inToken))
+
+		debug("Context information: %+v", info)
+
+		if secctx.ContinueNeeded() {
+			inToken, err = recvToken(conn)
+			if err != nil {
+				log.Fatal(err)
+			}
+			debug("Read context token (%d bytes:", len(inToken))
+			debug("%s", formatToken(inToken))
+		}
 	}
 
 	info, err := secctx.Inquire()
@@ -197,12 +202,10 @@ func printContextInfo(info *gssapi.SecContextInfo) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	_ = initName
-	_ = acceptName
 
 	debug("Context flags: %s", info.Flags)
 	debug("\"%s\" to \"%s\", expires: %s, %s, %s",
-		info.InitiatorName, info.AcceptorName,
+		initName, acceptName,
 		expiresAt,
 		local,
 		open)
