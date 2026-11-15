@@ -1,0 +1,84 @@
+name: Go/OS compatibility
+
+# Scheduled compatibility run: builds the Go examples (which use cgo via
+# go-gssapi-c) against the currently supported Go releases (stable and
+# oldstable, resolved from go.dev at run time so the matrix never goes stale)
+# with the Kerberos implementations go-gssapi-c supports on Linux and macOS.
+
+on:
+  schedule:
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # Test exactly the toolchain we installed; never auto-download a newer one.
+  GOTOOLCHAIN: local
+
+jobs:
+  go-versions:
+    name: Resolve supported Go releases
+    runs-on: ubuntu-latest
+    outputs:
+      stable: ${{ steps.resolve.outputs.stable }}
+      oldstable: ${{ steps.resolve.outputs.oldstable }}
+    steps:
+      - name: Look up stable and oldstable on go.dev
+        id: resolve
+        run: |
+          # go.dev lists the latest patch of each supported major release, newest first
+          json=$(curl -fsSL 'https://go.dev/dl/?mode=json')
+          stable=$(jq -r '[.[] | select(.stable)][0].version | ltrimstr("go")' <<<"$json")
+          oldstable=$(jq -r '[.[] | select(.stable)][1].version | ltrimstr("go")' <<<"$json")
+          test -n "$stable" -a -n "$oldstable"
+          echo "stable=$stable" >> "$GITHUB_OUTPUT"
+          echo "oldstable=$oldstable" >> "$GITHUB_OUTPUT"
+          echo "Go releases under test: stable=$stable oldstable=$oldstable" | tee -a "$GITHUB_STEP_SUMMARY"
+
+  build:
+    name: ${{ matrix.os }} / ${{ matrix.krb5 }} / Go ${{ matrix.go }}
+    needs: go-versions
+    strategy:
+      fail-fast: false
+      matrix:
+        go: [stable, oldstable]
+        target: [linux-mit, linux-heimdal, macos-base]
+        include:
+          - { target: linux-mit,     os: ubuntu-latest, krb5: mit }
+          - { target: linux-heimdal, os: ubuntu-latest, krb5: heimdal }
+          - { target: macos-base,    os: macos-latest,  krb5: base }
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: go
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go ${{ needs.go-versions.outputs[matrix.go] }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ needs.go-versions.outputs[matrix.go] }}
+          cache-dependency-path: go/go.sum
+
+      - name: OS and Go details
+        run: |
+          uname -a
+          if [ -e /etc/os-release ]; then cat /etc/os-release; fi
+          go version
+
+      - name: Install Ubuntu packages
+        if: ${{ runner.os == 'Linux' }}
+        run: |
+          if [ "${{ matrix.krb5 }}" = "mit" ]; then
+            sudo apt-get install -y libkrb5-dev pkg-config
+          else
+            sudo apt-get install -y heimdal-dev pkg-config
+          fi
+
+      - name: Vet and build
+        run: |
+          go vet ./...
+          make
